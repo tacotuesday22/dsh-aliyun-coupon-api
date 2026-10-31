@@ -65,9 +65,14 @@ ok(/main` 指向 `\.\/lib\/index\.js/.test(readme) || /指向 `\.\/lib\/index\.j
 
 console.log('\n=== 8. 仓库根目录整洁度 ===')
 // 根目录只应保留元数据文件；源码在 src/，脚本在 scripts/，测试在 tests/
-const rootFiles = fs.readdirSync(fileURLToPath(ROOT)).filter(f => fs.statSync(fileURLToPath(new URL(f, ROOT))).isFile())
-const allowedRoot = ['.gitignore', 'LICENSE', 'README.md', 'package.json', 'cordis.patch.yml']
-const strays = rootFiles.filter(f => !allowedRoot.includes(f) && !f.endsWith('.tgz'))
+// package-lock.json / node_modules / lib 都是本地安装产物，不算散落文件
+const allowedRoot = [
+  '.gitignore', 'LICENSE', 'README.md', 'package.json', 'cordis.patch.yml',
+  'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock',
+]
+const strays = fs.readdirSync(fileURLToPath(ROOT))
+  .filter(f => fs.statSync(fileURLToPath(new URL(f, ROOT))).isFile())
+  .filter(f => !allowedRoot.includes(f) && !f.endsWith('.tgz'))
 ok(strays.length === 0, '根目录没有散落的脚本或测试文件', strays.join(', '))
 
 console.log('\n=== 9. 目录结构与 README 一致 ===')
@@ -85,6 +90,30 @@ for (const [name, cmd] of testScripts) {
   const missing = refs.filter(r => !fs.existsSync(fileURLToPath(new URL(r, ROOT))))
   ok(missing.length === 0, `${name} 引用的脚本都存在`, missing.join(', '))
 }
+
+console.log('\n=== 10. 刷新频率与代码一致 ===')
+// 从源码中读取真实数值，再确认 README 写的与之一致 —— 这是最容易文档漂移的地方
+const clientSrc = fs.readFileSync(fileURLToPath(new URL('src/client.js', ROOT)), 'utf8')
+const hostSrc = fs.readFileSync(fileURLToPath(new URL('src/index.js', ROOT)), 'utf8')
+
+const pollMatch = clientSrc.match(/setInterval\([\s\S]*?\},\s*(\d+)\s*\*\s*1000\s*\)/)
+const pollSec = pollMatch ? Number(pollMatch[1]) : 0
+ok(pollSec === 30, `前端轮询为 30 秒（实际 ${pollSec}）`)
+
+const cacheMatch = hostSrc.match(/const CACHE_MS\s*=\s*(\d+)\s*\*\s*60_000/)
+const cacheMin = cacheMatch ? Number(cacheMatch[1]) : 0
+ok(cacheMin === 5, `宿主缓存为 5 分钟（实际 ${cacheMin}）`)
+
+const throttleMatch = hostSrc.match(/const MIN_REFRESH_MS\s*=\s*(\d+)_000/)
+const throttleSec = throttleMatch ? Number(throttleMatch[1]) : 0
+ok(throttleSec === 30, `强制刷新最小间隔 30 秒（实际 ${throttleSec}）`)
+
+// README 必须同时提到这两个数字，且不能再出现「每 5 分钟自动刷新」这种笼统说法
+ok(new RegExp(`${pollSec} 秒`).test(readme), `README 写明了 ${pollSec} 秒这一档`)
+ok(new RegExp(`${cacheMin} 分钟`).test(readme), `README 写明了 ${cacheMin} 分钟这一档`)
+ok(!/每 5 分钟自动更新一次；点击卡片立即刷新/.test(readme),
+  '未残留「统一 5 分钟刷新」的过时表述')
+ok(/点击卡片|强制刷新/.test(readme), '说明了点击卡片的刷新行为')
 
 console.log(`\n结果: ${pass} 通过, ${fail} 失败`)
 process.exit(fail ? 1 : 0)
