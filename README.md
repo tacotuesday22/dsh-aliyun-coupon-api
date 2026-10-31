@@ -159,6 +159,7 @@ dsh plugin --profile desktop add ./dsh-aliyun-coupon-api-x.y.z.tgz
 node test-logic.mjs    # 签名与响应归一化（无需网络）
 node test-usage.mjs    # 今日消耗读取
 node test-host.mjs     # 主机端路由与鉴权
+node test-inject.mjs   # Cordis 注入时序（包括"依赖尚未就绪"的场景）
 node test-client.mjs   # 客户端模块格式与插槽注册
 node test-creds.mjs    # 凭据三级回落（需本机已配置 AccessKey）
 node test-real.mjs     # 真实响应的回归用例（无需网络）
@@ -170,18 +171,34 @@ node test-e2e.mjs      # 端到端（需本机已配置 AccessKey，会真实调
 
 ### 踩过的坑
 
-1. **客户端模块格式**：DSH 0.2.1-rc.5 起客户端插件必须是
+1. **Cordis 服务必须用 `ctx.inject` 注入，不能直接 `ctx.get`**
+   服务是**异步就绪**的。在 `apply()` 里直接 `ctx.get('webServer')` 时它往往还没注册完，
+   拿到 `undefined`，路由会**静默注册失败**——前端请求打过来只是 404/无响应。
+   正确写法：
+
+   ```js
+   ctx.inject(['webServer'], (scope) => {
+     const dispose = (scope.webServer || scope.get('webServer'))
+       .register({ kind: 'prefix', path: API_PREFIX, handler })
+     scope.effect(() => () => dispose(), 'xxx: routes')
+   })
+   ```
+
+2. **客户端模块格式**：DSH 0.2.1-rc.5 起客户端插件必须是
    `window.__ModuleLoader__.load({ id, factory })`，写成裸 `module.exports`
    会报 `module is not defined` 并导致整个 web boot 失败。`build.mjs` 已加格式校验。
 
-2. **`DescribeCoupon` 的 `Status` 参数区分大小写**：接口实际返回 `AVAILABLE`（全大写），
+3. **`DescribeCoupon` 的 `Status` 参数区分大小写**：接口实际返回 `AVAILABLE`（全大写），
    而文档示例写的是 `Available`。传错大小写时**静默返回空数组**，不报错。
    本插件因此不使用服务端状态过滤，改为拉全量后本地判断。
 
-3. **金额精度**：`RemainAmount` 可能返回 10 位小数（如 `282.9609674126`），展示时统一保留两位。
+4. **金额精度**：`RemainAmount` 可能返回 10 位小数（如 `282.9609674126`），展示时统一保留两位。
 
-4. **两个接口的 API 版本不同**：`DescribeCoupon` 是 `2023-09-30`，
+5. **两个接口的 API 版本不同**：`DescribeCoupon` 是 `2023-09-30`，
    `QueryAccountBalance` 是 `2017-12-14`，`x-acs-version` 必须分别设置。
+
+6. **凭据不要只押在 `credentials` 服务上**：该服务的可用性随 DSH 版本变化。
+   本插件做三级回落：`credentials` 服务 → `$DSH_HOME/.credentials.yaml` → 环境变量。
 
 ## 许可
 

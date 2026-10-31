@@ -8,14 +8,20 @@ const ok = (c, l, e = '') => { if (c) { pass++; console.log('  ✓ ' + l) } else
 
 function buildCtx(credentialsImpl) {
   const routes = []
-  const ctx = {
-    get: (n) => {
-      if (n === 'credentials') return credentialsImpl
-      if (n === 'connection') return { admit: () => ({ peer: { id: 'x' } }) }
-      if (n === 'webServer') return { register: (r) => { routes.push(r); return () => {} } }
-      return null
-    },
+  const services = {
+    credentials: credentialsImpl,
+    connection: { admit: () => ({ peer: { id: 'x' } }) },
+    webServer: { register: (r) => { routes.push(r); return () => {} } },
+  }
+  const makeScope = () => ({
+    get: (n) => services[n] ?? null,
     effect: (fn) => { const d = fn(); if (typeof d === 'function') d() },
+    inject: (deps, cb) => { if (deps.every(d => services[d])) cb(makeScope()) },
+  })
+  const ctx = {
+    get: (n) => services[n] ?? null,
+    effect: (fn) => { const d = fn(); if (typeof d === 'function') d() },
+    inject: (deps, cb) => { if (deps.every(d => services[d])) cb(makeScope()) },
   }
   return { ctx, routes }
 }

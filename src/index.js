@@ -20,6 +20,8 @@ import { homedir } from 'node:os'
 export const name = 'aliyun-coupon-api'
 
 const API_PREFIX = '/api/aliyun-coupon'
+/** 插件版本，与 package.json 保持一致（用于 diag 自检）。 */
+const PLUGIN_VERSION = '1.5.0'
 // 缓存与前端轮询同为 5 分钟：正常轮询不会穿透缓存重复打阿里云接口。
 const CACHE_MS = 5 * 60_000
 // 手动刷新（点卡片）的最短间隔，防止连点。
@@ -110,7 +112,15 @@ export function apply(ctx) {
   /**
    * 鉴权：复用 DSH 的 connection 服务。
    * fail-closed —— 拿不到 connection 服务时拒绝，而不是放行。
+   *
+   * 例外：`/diag` 允许本机回环直连免鉴权，便于用 curl 排查。
+   * diag 只返回状态与错误文本，不返回任何金额或密钥。
    */
+  const isLoopback = (req) => {
+    const addr = req?.socket?.remoteAddress || ''
+    return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1'
+  }
+
   const authorize = (req) => {
     let connection
     try { connection = ctx.get?.('connection') } catch { connection = null }
@@ -218,12 +228,6 @@ export function apply(ctx) {
   }
 
   const handler = async (req, res) => {
-    const auth = authorize(req)
-    if (!auth.ok) {
-      sendJson(res, auth.status, { ok: false, error: auth.reason || '未授权：请通过 DSH 界面访问' })
-      return
-    }
-
     let pathname
     try {
       pathname = new URL(req.url || '/', 'http://127.0.0.1').pathname
@@ -232,15 +236,52 @@ export function apply(ctx) {
       return
     }
 
+    // /diag 允许本机回环免鉴权（只返回状态，不含金额与密钥）；其余接口一律鉴权
+    const diagOpen = pathname === API_PREFIX + '/diag' && isLoopback(req)
+    if (!diagOpen) {
+      const auth = authorize(req)
+      if (!auth.ok) {
+        sendJson(res, auth.status, { ok: false, error: auth.reason || '未授权：请通过 DSH 界面访问' })
+        return
+      }
+    }
+
     try {
       if (pathname === API_PREFIX + '/diag') {
         const creds = await readAllCredentials(ctx)
+        // 运行时诊断：服务可用性、凭据来源、一次探测性调用的结果
+        let credentialsServiceState = 'absent'
+        try {
+          const s = ctx.get?.('credentials')
+          if (s) {
+            credentialsServiceState = typeof s.resolve === 'function' ? 'ok' : 'no-resolve'
+          }
+        } catch (e) {
+          credentialsServiceState = 'throws:' + (e?.message || String(e))
+        }
+
+        let probe = null
+        if (creds.accessKeyId && creds.accessKeySecret) {
+          try {
+            const r = await queryCoupons(creds)
+            probe = { ok: true, count: r.total.count, remain: r.total.remain }
+          } catch (e) {
+            probe = { ok: false, error: e?.message || String(e), name: e?.name, code: e?.code }
+          }
+        }
+
         sendJson(res, 200, {
           ok: true,
-          version: '1.0.0',
+          version: PLUGIN_VERSION,
           endpoint: 'https://business.aliyuncs.com/',
           action: 'DescribeCoupon',
           hasCredentials: Boolean(creds.accessKeyId && creds.accessKeySecret),
+          akLength: creds.accessKeyId ? creds.accessKeyId.length : 0,
+          skLength: creds.accessKeySecret ? creds.accessKeySecret.length : 0,
+          credentialsService: credentialsServiceState,
+          dshHome: process.env.DSH_HOME || null,
+          nodeVersion: process.version,
+          probe,
           cachedAt: cachedAt ? new Date(cachedAt).toISOString() : null,
         })
         return
@@ -261,19 +302,16 @@ export function apply(ctx) {
     }
   }
 
-  // 路由注册：优先 ctx.webServer，其次常见别名；都不可用则尝试 get('webServer')
-  const candidates = ['webServer', 'web-server', 'httpServer', 'server']
-  ctx.effect(() => {
-    let dispose = null
-    for (const name of candidates) {
-      let service
-      try { service = ctx.get?.(name) } catch { service = null }
-      if (service && typeof service.register === 'function') {
-        const off = service.register({ kind: 'prefix', path: API_PREFIX, handler })
-        dispose = typeof off === 'function' ? off : () => {}
-        break
-      }
-    }
-    return () => { if (dispose) dispose() }
-  }, 'aliyun-coupon-api: routes')
+  // 路由注册：用声明式注入。
+  //
+  // 关键：不能在 apply 时直接 ctx.get('webServer')。
+  // Cordis 的服务是异步就绪的，apply 执行时 webServer 往往还没注册完，
+  // get() 会返回 undefined，路由静默失效（这就是之前"读取失败"的根因）。
+  // ctx.inject(deps, cb) 会在依赖就绪后再调用 cb —— 费用插件用的也是这个方式。
+  ctx.inject(['webServer'], (scope) => {
+    const service = scope.webServer || scope.get('webServer')
+    if (!service || typeof service.register !== 'function') return
+    const dispose = service.register({ kind: 'prefix', path: API_PREFIX, handler })
+    scope.effect(() => () => { if (typeof dispose === 'function') dispose() }, 'aliyun-coupon-api: routes')
+  })
 }
