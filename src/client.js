@@ -110,6 +110,17 @@ window.__ModuleLoader__.load({
 /* ── 未配置状态：可点击的引导卡片 ── */
 .acp-setup{border-color:var(--dsw-alias-state-warning-primary,#f0ad4e);}
 .acp-val.setup{color:var(--dsw-alias-state-warning-primary,#f0ad4e);}
+.acp-links{
+  display:flex;align-items:center;gap:6px;flex-wrap:wrap;
+  font-size:11.5px;
+}
+.acp-link{
+  color:var(--dsw-alias-state-business-primary,#3b82f6);
+  text-decoration:none;cursor:pointer;
+  border-bottom:1px solid transparent;
+}
+.acp-link:hover{border-bottom-color:currentColor;}
+.acp-link-sep{opacity:.4;}
 
 /* ── 设置页：凭据配置区块 ── */
 .acp-setup-panel{
@@ -216,57 +227,24 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 打开 DSH 设置页并定位到本插件的凭据区块。
+     * 跳转到 DSH 设置页里的凭据配置区块。
      *
-     * 实现方式：优先找设置按钮并点击；找不到时退化为在地址栏加 hash，
-     * 由我们的设置区块自行滚动到可视区域（见 SetupSection 中的 hash 处理）。
+     * 只做 hash 跳转，不去猜设置按钮的 DOM 结构（各版本不同，容易失效）。
+     * 用户点开设置后，配置区块会读到这个 hash 并自动滚动到可视区域。
      */
     const SETTINGS_HASH = '#aliyun-coupon-setup'
     function openSettings() {
       try {
-        if (typeof window !== 'undefined') {
-          window.location.hash = SETTINGS_HASH
-          // 设置面板通常是侧边抽屉/弹窗，需要用户自己点开；
-          // 这里同时尝试点击侧边栏底部的设置按钮以直达。
-          const btn = findSettingsButton()
-          if (btn) btn.click()
-          // 等面板渲染后再滚动到目标区块
-          setTimeout(() => {
-            const el = typeof document !== 'undefined'
-              ? document.getElementById('aliyun-coupon-setup-anchor')
-              : null
-            if (el && typeof el.scrollIntoView === 'function') {
-              el.scrollIntoView({ block: 'center', behavior: 'smooth' })
-            }
-          }, 600)
-        }
+        window.location.hash = SETTINGS_HASH
       } catch { /* 静默失败，用户仍可手动进设置 */ }
-    }
-
-    /** 尽力找到侧边栏里的设置入口按钮。 */
-    function findSettingsButton() {
-      if (typeof document === 'undefined') return null
-      const selectors = [
-        '[data-slot="sidebar.settings"] button',
-        '[data-slot="sidebar.settings"]',
-        'button[aria-label*="设置"]',
-        'button[aria-label*="Settings"]',
-        'button[title*="设置"]',
-        'button[title*="Settings"]',
-      ]
-      for (const sel of selectors) {
-        try {
-          const el = document.querySelector(sel)
-          if (el) return el
-        } catch { /* 无效选择器，继续 */ }
-      }
-      return null
     }
 
     // ── 阿里云控制台直达链接 ──
     const RAM_USERS = 'https://ram.console.aliyun.com/users'
     const RAM_POLICIES = 'https://ram.console.aliyun.com/policies'
     const POLICY_NAME = 'AliyunBSSReadOnlyAccess'
+    // 链接到 README（用顶部锚点最稳，避免 GitHub 中文标题的锚点规则变化导致失效）
+    const README_URL = 'https://github.com/tacotuesday22/dsh-aliyun-coupon-api#readme'
 
     /**
      * 设置页里的「阿里云凭据」区块。
@@ -534,13 +512,28 @@ window.__ModuleLoader__.load({
       if (d.configured === false) {
         return h('div', {
           className: 'acp-card acp-setup',
-          title: '点击打开设置，配置阿里云 AccessKey',
-          onClick: openSettings,
+          title: '配置阿里云 AccessKey 后即可显示余额与代金券',
         },
           h('div', { className: 'acp-row' },
             h('span', { className: 'acp-label' }, h('span', { className: 'acp-dot setup' }), '阿里云余额'),
-            h('span', { className: 'acp-val setup' }, '未配置 ›')),
-          h('div', { className: 'acp-sub' }, '点击前往配置（只需一次性设置）'))
+            h('span', { className: 'acp-val setup' }, '未配置')),
+          // 两个明确的入口，都是标准链接，不依赖 DSH 内部 DOM 结构
+          h('div', { className: 'acp-links' },
+            h('a', {
+              className: 'acp-link',
+              href: '#',
+              title: '跳转到 DSH 设置页的配置区块',
+              onClick: (e) => { e.preventDefault(); e.stopPropagation(); openSettings() },
+            }, '去设置 ›'),
+            h('span', { className: 'acp-link-sep' }, '·'),
+            h('a', {
+              className: 'acp-link',
+              href: README_URL,
+              target: '_blank',
+              rel: 'noopener noreferrer',
+              title: '查看图文配置教程',
+              onClick: (e) => e.stopPropagation(),
+            }, '配置教程 ↗')))
       }
 
       if (!d.ok) {
