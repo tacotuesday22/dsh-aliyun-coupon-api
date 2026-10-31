@@ -35,7 +35,7 @@
   "scripts": {
     "build": "node build.mjs",
     "prepare": "node build.mjs",
-    "test": "node test-logic.mjs && node test-usage.mjs && node test-inject.mjs && node test-client.mjs && node test-real.mjs",
+    "test": "node test-logic.mjs && node test-usage.mjs && node test-inject.mjs && node test-client.mjs && node test-real.mjs && node test-cache.mjs && node test-config.mjs && node test-settings-open.mjs && node test-readme.mjs",
     "prepublishOnly": "node build.mjs"
   },
   "files": [

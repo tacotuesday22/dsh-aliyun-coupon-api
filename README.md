@@ -15,38 +15,89 @@
 - **账户余额 / 代金券**：阿里云官方 OpenAPI
 - **刷新**：每 5 分钟自动更新一次；点击卡片立即刷新
 
-## 查询的两个接口
+---
 
-| 数据 | 接口 | API 版本 | 权限点 |
-|---|---|---|---|
-| 账户余额 | `QueryAccountBalance` | **2017-12-14** | `bss:DescribeAcccount` |
-| 代金券 | `DescribeCoupon` | **2023-09-30** | `bss:DescribeCoupon` |
+## 目录
 
-> 两者版本号不同但签名算法相同，插件已分别处理。
-> 系统策略 `AliyunBSSReadOnlyAccess`（含 `bss:Describe*`）**同时覆盖这两个**，所以挂这一个策略即可。
+- [两种安装方式](#两种安装方式)
+- [完整教程](#完整教程) — 从零到能用，分四步
+- [使用](#使用)
+- [故障排除](#故障排除)
+- [技术说明](#技术说明) — 调用了哪些接口、与抓网页方案的对比
+- [安全设计](#安全设计)
+- [开发](#开发)
 
-**关于「账户余额」的口径**：显示的是 `AvailableAmount`（可用额度，含信控等因素），
-不等同于现金余额、也不等同于消费额。原始字段里还有 `AvailableCashAmount`（可用现金）。
+---
 
-## 为什么用它而不是抓网页
+## 两种安装方式
 
-| | 本插件 | 抓网页类插件 |
-|---|---|---|
-| 凭据 | RAM **只读** AccessKey | 阿里云账号**明文密码** |
-| 访问方式 | 官方 OpenAPI（`DescribeCoupon`） | 模拟登录 + 解析 HTML |
-| 合规 | 符合阿里云服务条款 | 违反条款风险 |
-| 稳定性 | 接口版本化，页面改版无影响 | 页面一改就失效 |
-| 二次验证 | 无关 | 开了就用不了 |
+### 方式一：手动安装（按教程一步步来）
 
-## 快速开始
+适合想弄清楚每一步在做什么的用户。照下面的 [完整教程](#完整教程) 走即可，约 10 分钟。
 
-三步：**① 建 RAM 只读子账号拿到 AccessKey → ② 装插件 → ③ 把 AccessKey 填进 DSH**
+### 方式二：让 AI Agent 帮你装（推荐给新手）
 
-下面每步都有详细操作。
+如果你正在用 DeepSeek Harness 本身的 Agent，或者 Claude Code / Cursor 之类能执行命令的 AI 工具，
+可以**把下面这段话直接发给它**，它会自动完成安装与配置：
 
-> 💡 **推荐用内置配置界面**：安装插件后，侧边栏卡片会显示「未配置 ›」，
-> 点击会跳到 **设置 → 阿里云代金券**，那里有三步引导、直达阿里云控制台的按钮，
-> 以及 AccessKey 填写表单（保存前会自动验证）。下面的手动步骤仅供参考或备用。
+````text
+请帮我安装并配置 DSH 插件 dsh-aliyun-coupon-api。
+
+背景信息：
+- 这是一个 DeepSeek Harness 插件，通过阿里云官方 OpenAPI 只读查询
+  账户余额与代金券余额，显示在侧边栏底部。
+- 仓库：https://github.com/tacotuesday22/dsh-aliyun-coupon-api
+- 详细文档见该仓库 README。
+
+请按以下步骤操作：
+
+1. 先确认我能用的 dsh 命令：
+   - 桌面版的 dsh 通常在
+     %LOCALAPPDATA%\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd
+     （macOS 在 /Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh）
+   - 注意：npm 全局安装的 dsh 无法操作 desktop profile，必须用桌面版自带的。
+
+2. 克隆仓库并构建：
+   git clone https://github.com/tacotuesday22/dsh-aliyun-coupon-api.git
+   cd dsh-aliyun-coupon-api
+   npm install     # 会自动执行 build.mjs 生成 lib/
+   npm pack        # 生成 tgz
+
+3. 用桌面版 dsh 安装 tgz：
+   <dsh> plugin --profile desktop add ./dsh-aliyun-coupon-api-*.tgz
+   然后用 <dsh> plugin --profile desktop list 确认已出现该插件。
+
+4. 提醒我重启 DeepSeek Harness。
+
+5. 重启后，请引导我完成阿里云 AccessKey 配置：
+   - 告诉我需要去 https://ram.console.aliyun.com/users 创建一个子用户
+   - 勾选「使用永久 AccessKey 访问」，不要勾「使用控制台访问」
+   - 授予系统策略 AliyunBSSReadOnlyAccess（只读，无法修改任何资源）
+   - 创建 AccessKey 后，把 ID 和 Secret 填进插件设置页
+     （设置 → 阿里云代金券，保存前会自动验证）
+   - 强调：这是 RAM AccessKey（LTAI 开头），不是模型 API Key（sk- 开头）
+
+如果任何一步失败，请告诉我具体报错，不要跳过。
+````
+
+> **为什么推荐这个方式**：安装环节涉及路径查找、构建、CLI 调用，对不熟悉命令行的用户是门槛。
+> Agent 可以直接读取报错并调整，你说一句话就能完成。
+>
+> ⚠️ 注意：**AccessKey 的创建必须在阿里云控制台由你本人操作**，不要把它贴给 AI。
+> 配好之后填进插件设置页即可，插件会自己保存。
+
+---
+
+## 完整教程
+
+四步：**① 建只读子账号 → ② 装插件 → ③ 填 AccessKey → ④ 验证**
+
+整个过程约 10 分钟。
+
+> 💡 **推荐用内置配置界面**：安装插件后，侧边栏卡片会显示「未配置」，
+> 点「去设置 ›」会打开 **设置 → 阿里云代金券**，那里有三步引导、
+> 直达阿里云控制台的按钮，以及 AccessKey 填写表单（保存前会自动验证）。
+> 下面的手动步骤仅供参考或备用。
 
 ---
 
@@ -381,6 +432,31 @@ ALIBABA_CLOUD_SECURITY_TOKEN=<your token>
 
 ---
 
+### 第四步：验证配置是否生效
+
+配置成功后卡片会**自动刷新**，无需重启。看到真实数字就说明成功了。
+
+想更确定一点，可以跑一次自检（端口是 DSH 启动时打印的地址里的那个）：
+
+```bash
+curl http://127.0.0.1:<端口>/api/aliyun-coupon/diag
+```
+
+重点看这几个字段：
+
+| 字段 | 期望值 | 含义 |
+|---|---|---|
+| `hasCredentials` | `true` | 凭据读到了 |
+| `probe.ok` | `true` | 在宿主进程内成功调用了阿里云 |
+| `probe.count` | 你的券数量 | 读到的可用券数 |
+| `source` | `store` / `file` / `env` | 凭据来自哪里 |
+
+响应**不含任何密钥**，只报长度，可以放心分享到 Issue 里排错。
+
+如果 `probe.ok` 为 `false`，看 `probe.error` 的具体内容，对照下面的 [故障排除](#故障排除)。
+
+---
+
 ## 使用
 
 重启后侧边栏底部（设置按钮旁）出现卡片：
@@ -432,6 +508,34 @@ curl http://127.0.0.1:<端口>/api/aliyun-coupon/diag
 
 ---
 
+## 技术说明
+
+### 调用的两个接口
+
+| 数据 | 接口 | API 版本 | 权限点 |
+|---|---|---|---|
+| 账户余额 | `QueryAccountBalance` | **2017-12-14** | `bss:DescribeAcccount` |
+| 代金券 | `DescribeCoupon` | **2023-09-30** | `bss:DescribeCoupon` |
+
+> 两者版本号不同但签名算法相同（ACS3-HMAC-SHA256），插件已分别处理。
+> 系统策略 `AliyunBSSReadOnlyAccess`（含 `bss:Describe*` 与 `bssapi:Query*`）
+> **同时覆盖这两个**，所以挂这一个策略即可。
+
+**关于「账户余额」的口径**：显示的是 `AvailableAmount`（可用额度，含信控等因素），
+**不等同于现金余额**，也不等同于消费额。原始字段里还有 `AvailableCashAmount`（可用现金）。
+
+### 为什么用它而不是抓网页
+
+| | 本插件 | 抓网页类插件 |
+|---|---|---|
+| 凭据 | RAM **只读** AccessKey | 阿里云账号**明文密码** |
+| 访问方式 | 官方 OpenAPI | 模拟登录 + 解析 HTML |
+| 合规 | 符合阿里云服务条款 | 违反条款风险 |
+| 稳定性 | 接口版本化，页面改版无影响 | 页面一改就失效 |
+| 二次验证 | 无关 | 开了就用不了 |
+
+---
+
 ## 安全设计
 
 - **只读**：仅调用 `DescribeCoupon` / `QueryAccountBalance`，没有任何写操作
@@ -458,18 +562,6 @@ curl http://127.0.0.1:<端口>/api/aliyun-coupon/diag
 **不等同于现金余额**，也不等同于消费额。原始字段里还有 `AvailableCashAmount`（可用现金）。
 
 ---
-
-## 与「抓网页」类插件的区别
-
-市面上有些同类插件靠模拟登录控制台抓 HTML，本插件走官方 API：
-
-| | 本插件 | 抓网页类插件 |
-|---|---|---|
-| 凭据 | RAM **只读** AccessKey | 阿里云账号**明文密码** |
-| 访问方式 | 官方 OpenAPI | 模拟登录 + 解析 HTML |
-| 合规 | 符合阿里云服务条款 | 违反条款风险 |
-| 稳定性 | 接口版本化，页面改版无影响 | 页面一改就失效 |
-| 二次验证 | 无关 | 开了就用不了 |
 
 ## 开发
 
