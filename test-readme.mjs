@@ -1,9 +1,10 @@
 // 校验 README 中的关键事实：路径、命令、链接是否真实有效。
 import fs from 'node:fs'
-import { execSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 
-const readme = fs.readFileSync('D:/Users/Ryan/Documents/PaperNotes/DSH/dsh-aliyun-coupon-api/README.md', 'utf8')
-const pkg = JSON.parse(fs.readFileSync('D:/Users/Ryan/Documents/PaperNotes/DSH/dsh-aliyun-coupon-api/package.json', 'utf8'))
+const ROOT = new URL('./', import.meta.url)
+const readme = fs.readFileSync(fileURLToPath(new URL('README.md', ROOT)), 'utf8')
+const pkg = JSON.parse(fs.readFileSync(fileURLToPath(new URL('package.json', ROOT)), 'utf8'))
 
 let pass = 0, fail = 0
 const ok = (c, l, e = '') => { if (c) { pass++; console.log('  ✓ ' + l) } else { fail++; console.log('  ✗ ' + l + (e ? ' → ' + e : '')) } }
@@ -54,6 +55,12 @@ const headerSlugs = [...readme.matchAll(/^#{1,4} (.+)$/gm)].map(m =>
 for (const a of anchors) {
   ok(headerSlugs.includes(a), `锚点 #${a} 有效`)
 }
+
+console.log('\n=== 7. lib 构建说明 ===')
+ok(/仓库里为什么没有 `lib\/`/.test(readme), '说明 lib 为何不入库')
+ok(/npm run build/.test(readme), '给出无 lib 时的构建方法')
+ok(/main` 指向 `\.\/lib\/index\.js/.test(readme) || /指向 `\.\/lib\/index\.js`/.test(readme),
+  '指出 main 指向 lib，缺失会导致加载失败')
 
 console.log(`\n结果: ${pass} 通过, ${fail} 失败`)
 process.exit(fail ? 1 : 0)

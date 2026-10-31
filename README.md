@@ -549,6 +549,31 @@ curl http://127.0.0.1:<端口>/api/aliyun-coupon/diag
 > ⚠️ 凭据文件 `.credentials.yaml` 是**明文 YAML**，靠文件系统权限保护。
 > 建议始终使用只读子账号的 AccessKey，不要用主账号。
 
+### 仓库里为什么没有 `lib/`
+
+`lib/` 是 `src/` 的机械转换产物，提交它会让 diff 变得难读，所以由 `.gitignore` 排除。
+
+**但这意味着克隆后必须先构建，否则插件无法运行** ——
+`package.json` 的 `main` 指向 `./lib/index.js`，文件不存在时插件加载会失败。
+
+| 你的操作 | 是否自动构建 |
+|---|---|
+| `npm install` | ✅ 会（触发 `prepare` 脚本） |
+| `npm pack` | ✅ 会（触发 `prepare` 脚本） |
+| `npm publish` | ✅ 会（触发 `prepublishOnly`） |
+| **直接 `dsh plugin add <源码目录>`** | ❌ **不会**，必须先 `npm run build` |
+
+所以推荐流程始终是：
+
+```bash
+npm install    # 自动生成 lib/
+npm pack       # 打包成含 lib/ 的 tgz
+<dsh> plugin --profile desktop add ./dsh-aliyun-coupon-api-<版本>.tgz
+```
+
+> 如果你确实想直接从目录安装，请先执行 `npm run build`（等价于 `node build.mjs`），
+> 否则装上去的是一个指向空 `lib/` 的链接，插件不会生效。
+
 ---
 
 ## 关于「云工开物」学生券
