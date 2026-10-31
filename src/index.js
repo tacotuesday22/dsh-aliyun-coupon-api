@@ -21,7 +21,7 @@ export const name = 'aliyun-coupon-api'
 
 const API_PREFIX = '/api/aliyun-coupon'
 /** 插件版本，与 package.json 保持一致（用于 diag 自检）。 */
-const PLUGIN_VERSION = '1.5.0'
+const PLUGIN_VERSION = '1.5.1'
 // 缓存与前端轮询同为 5 分钟：正常轮询不会穿透缓存重复打阿里云接口。
 const CACHE_MS = 5 * 60_000
 // 手动刷新（点卡片）的最短间隔，防止连点。
@@ -141,20 +141,25 @@ export function apply(ctx) {
 
   const load = async (force) => {
     const now = Date.now()
+    // 今日消耗来自本地账本，读取成本极低，每次都重新读——
+    // 绝不能跟着阿里云数据一起缓存，否则会滞后一个完整周期。
+    const freshUsage = readTodayUsage()
+
     // 只缓存成功结果。"未配置"与"查询失败"应当很快重试，
     // 否则用户填好凭据或阿里云恢复后，还要干等一个完整的缓存周期。
     if (!force && cached && cached.ok && now - cachedAt < CACHE_MS) {
-      return { ...cached, cached: true }
+      // 用缓存的阿里云数据 + 新鲜的本地消耗
+      return { ...cached, usage: freshUsage, cached: true }
     }
     if (inflight) return inflight
     if (now - lastAttemptAt < MIN_REFRESH_MS && cached && cached.ok) {
-      return { ...cached, cached: true, throttled: true }
+      return { ...cached, usage: freshUsage, cached: true, throttled: true }
     }
 
     lastAttemptAt = now
     inflight = (async () => {
       // 今日消耗与阿里云无关，任何时候都尝试读取（失败则隐藏该行）
-      const usage = readTodayUsage()
+      const usage = freshUsage
 
       const creds = await readAllCredentials(ctx)
       if (!creds.accessKeyId || !creds.accessKeySecret) {

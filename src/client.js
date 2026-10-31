@@ -132,11 +132,12 @@ window.__ModuleLoader__.load({
 
       React.useEffect(() => {
         load(false)
-        // 5 分钟自动刷新一次，与 host 端缓存周期一致
+        // 每 30 秒拉一次前端数据。后端对阿里云数据有 5 分钟缓存（不会重复打 API），
+        // 但今日消耗每次都实时读取本地账本，所以这样能保持消耗数字及时更新。
         const timer = setInterval(() => {
           if (typeof document !== 'undefined' && document.hidden) return
           load(false)
-        }, 5 * 60 * 1000)
+        }, 30 * 1000)
         return () => clearInterval(timer)
       }, [load])
 
