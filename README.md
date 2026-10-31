@@ -134,30 +134,35 @@ node test-live.mjs
 
 ## 第二步：安装插件
 
-### 方式 A：从 GitHub 安装（推荐）
+### 方式 A：从 GitHub 源码构建后安装（推荐）
 
 ```bash
 git clone https://github.com/tacotuesday22/dsh-aliyun-coupon-api.git
 cd dsh-aliyun-coupon-api
-npm install --ignore-scripts=false   # prepare 会自动构建出 lib/
-dsh plugin --profile desktop add .
+npm install          # prepare 脚本会自动执行 build.mjs，生成 lib/
+npm pack             # 生成 dsh-aliyun-coupon-api-<版本>.tgz
+dsh plugin --profile desktop add ./dsh-aliyun-coupon-api-<版本>.tgz
 ```
 
-> `lib/`（构建产物）不在仓库里，需要先构建。
-> `npm install` 会触发 `prepare` 脚本自动执行 `node build.mjs`。
+> **为什么要 `npm pack` 而不是直接 `add .`**
+>
+> `dsh plugin add .` 会创建一个指向源码目录的**符号链接**（`link:`）。
+> 之后如果你移动或删除该目录，插件就会失效，甚至导致 DSH 无法启动。
+> 用 tarball 安装是真实拷贝，安全得多。
+>
+> `lib/`（构建产物）不在仓库里，必须先构建。手动构建也行：
+>
+> ```bash
+> node build.mjs
+> npm pack
+> ```
 
-如果跳过 npm，也可以手动构建：
+### 方式 B：直接安装 tgz
+
+如果别人已经给你一个 `.tgz`：
 
 ```bash
-node build.mjs
-dsh plugin --profile desktop add .
-```
-
-### 方式 B：用打包好的 tgz
-
-```bash
-npm pack                                  # 生成 dsh-aliyun-coupon-api-1.5.0.tgz
-dsh plugin --profile desktop add ./dsh-aliyun-coupon-api-1.5.0.tgz
+dsh plugin --profile desktop add ./dsh-aliyun-coupon-api-<版本>.tgz
 ```
 
 ### 方式 C：npm 安装（发布后可用）
@@ -168,11 +173,9 @@ dsh plugin --profile desktop add dsh-aliyun-coupon-api
 
 ### 安装后必须重启
 
-```bash
-# 完全退出 DeepSeek Harness 再重新打开
-```
+完全退出 DeepSeek Harness 再重新打开。
 
-> 只刷新页面不够，插件是启动时加载的。
+> 只刷新页面不够，插件只在启动时加载。
 
 ---
 
