@@ -1,5 +1,5 @@
 // 用假的 fetch 验证签名与归一化逻辑，不需要真实阿里云凭据。
-import { signRequest, normalizeCoupons, normalizeBalance } from './src/aliyun.js'
+import { signRequest, normalizeCoupons, normalizeBalance } from '../../src/aliyun.js'
 import { createHash, createHmac } from 'node:crypto'
 
 let pass = 0, fail = 0

@@ -33,10 +33,14 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "build": "node build.mjs",
-    "prepare": "node build.mjs",
-    "test": "node test-logic.mjs && node test-usage.mjs && node test-inject.mjs && node test-client.mjs && node test-real.mjs && node test-cache.mjs && node test-config.mjs && node test-settings-open.mjs && node test-readme.mjs",
-    "prepublishOnly": "node build.mjs"
+    "build": "node scripts/build.mjs",
+    "prepare": "node scripts/build.mjs",
+    "prepublishOnly": "node scripts/build.mjs",
+    "test": "npm run test:unit && npm run test:integration",
+    "test:unit": "node tests/unit/signing.mjs && node tests/unit/usage.mjs && node tests/unit/normalize.mjs && node tests/unit/inject.mjs && node tests/unit/client-module.mjs && node tests/unit/settings-open.mjs && node tests/unit/readme.mjs",
+    "test:integration": "node tests/integration/host-routes.mjs && node tests/integration/cache-freshness.mjs && node tests/integration/config-api.mjs",
+    "test:live": "node tests/manual/live-api.mjs",
+    "verify": "node scripts/verify-installed.mjs"
   },
   "files": [
     "lib",

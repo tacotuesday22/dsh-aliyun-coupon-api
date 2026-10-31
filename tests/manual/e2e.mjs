@@ -1,7 +1,7 @@
 // 端到端验证：在真实凭据环境下调用 /balance，确认能拿到券与余额。
 import { EventEmitter } from 'node:events'
 
-const mod = await import('./lib/index.js')
+const mod = await import('../../lib/index.js')
 
 const routes = []
 const ctx = {

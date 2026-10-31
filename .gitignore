@@ -1,7 +1,7 @@
 # 依赖
 node_modules/
 
-# 构建产物（由 build.mjs 从 src/ 生成，不提交）
+# 构建产物（由 scripts/build.mjs 从 src/ 生成，不提交）
 lib/
 
 # 打包产物

@@ -2,8 +2,10 @@
 // host 半边是 ESM；client 半边本身就是 __ModuleLoader__ 格式，直接复制即可。
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const root = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'))
+// 本文件位于 scripts/，项目根是它的上一级
+const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const src = path.join(root, 'src')
 const lib = path.join(root, 'lib')
 fs.mkdirSync(lib, { recursive: true })

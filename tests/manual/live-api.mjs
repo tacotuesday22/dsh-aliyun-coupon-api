@@ -4,7 +4,7 @@
 import fs from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import { queryCoupons, queryBalance } from './src/aliyun.js'
+import { queryCoupons, queryBalance } from '../../src/aliyun.js'
 
 const CRED = process.env.DSH_CREDENTIALS_FILE || join(process.env.DSH_HOME || join(homedir(), '.dsh'), '.credentials.yaml')
 

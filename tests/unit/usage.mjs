@@ -2,7 +2,7 @@
 import fs from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import { readTodayUsage } from './src/usage.js'
+import { readTodayUsage } from '../../src/usage.js'
 
 let pass = 0, fail = 0
 const ok = (c, l, e = '') => { if (c) { pass++; console.log('  ✓ ' + l) } else { fail++; console.log('  ✗ ' + l + (e ? ' → ' + e : '')) } }

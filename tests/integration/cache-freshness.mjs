@@ -2,7 +2,7 @@
 import fs from 'node:fs'
 import { EventEmitter } from 'node:events'
 
-const mod = await import(new URL('./lib/index.js', import.meta.url).href)
+const mod = await import(new URL('../../lib/index.js', import.meta.url).href)
 
 let pass = 0, fail = 0
 const ok = (c, l, e = '') => { if (c) { pass++; console.log('  ✓ ' + l) } else { fail++; console.log('  ✗ ' + l + (e ? ' → ' + e : '')) } }

@@ -2,7 +2,7 @@
 import fs from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import { signRequest, ENDPOINT, ACTION_DESCRIBE_COUPON, API_VERSION } from './src/aliyun.js'
+import { signRequest, ENDPOINT, ACTION_DESCRIBE_COUPON, API_VERSION } from '../../src/aliyun.js'
 
 const CRED = process.env.DSH_CREDENTIALS_FILE || join(process.env.DSH_HOME || join(homedir(), '.dsh'), '.credentials.yaml')
 function readRefs(text) {

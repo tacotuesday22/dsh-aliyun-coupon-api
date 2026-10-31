@@ -1,7 +1,7 @@
 // 端到端验证：加载 lib/index.js，用假 ctx 跑一遍路由。
 import { EventEmitter } from 'node:events'
 
-const mod = await import('./lib/index.js')
+const mod = await import('../../lib/index.js')
 console.log('exports:', Object.keys(mod))
 console.log('name:', mod.name)
 
@@ -9,13 +9,30 @@ let pass = 0, fail = 0
 const ok = (c, l, e = '') => { if (c) { pass++; console.log('  ✓ ' + l) } else { fail++; console.log('  ✗ ' + l + (e ? ' → ' + e : '')) } }
 
 const routes = []
-const fake = {
-  get: (n) => ({
-    webServer: { register: (r) => { routes.push(r); return () => {} } },
-    connection: { admit: () => ({ peer: { id: 'test' } }) },
-    credentials: { resolve: async () => null },
-  })[n] ?? null,
+const services = {
+  webServer: { register: (r) => { routes.push(r); return () => {} } },
+  connection: { admit: () => ({ peer: { id: 'test' } }) },
+  credentials: { resolve: async () => null },
+}
+
+// 繁荣的假 ctx：同时提供 get / effect / inject。
+// inject 必须真实调用回调 —— 插件用 ctx.inject(['webServer'], cb) 注册路由，
+// 只提供 get 的 ctx 会让路由静默不注册（这正是之前「读取失败」的根因）。
+const makeScope = (override) => ({
+  get: (n) => (override && n in override ? override[n] : (services[n] ?? null)),
   effect: (fn) => { const d = fn(); if (typeof d === 'function') d() },
+  inject: (deps, cb) => {
+    const all = deps.every(d => (override && d in override ? override[d] : services[d]))
+    if (all) cb(makeScope(override))
+  },
+})
+
+const fake = {
+  get: (n) => (services[n] ?? null),
+  effect: (fn) => { const d = fn(); if (typeof d === 'function') d() },
+  inject: (deps, cb) => {
+    if (deps.every(d => services[d])) cb(makeScope())
+  },
 }
 
 mod.apply(fake)
@@ -31,7 +48,6 @@ const callRoute = async (path, method = 'GET', admit = true) => {
     statusCode: 0, setHeader() {}, writeHead(c) { this.statusCode = c; return this },
     write(c) { body += c; return true }, end(c) { if (c) body += c; return this },
   }
-  if (!admit) fake.get = () => null
   await routes[0].handler(req, res)
   let json = null
   try { json = JSON.parse(body) } catch { /* ignore */ }
@@ -63,15 +79,14 @@ if (savedAk !== undefined) process.env.ALIBABA_CLOUD_ACCESS_KEY_ID = savedAk
 if (savedSk !== undefined) process.env.ALIBABA_CLOUD_ACCESS_KEY_SECRET = savedSk
 
 console.log('\n=== 鉴权 ===')
-const noAuth = await callRoute('/api/aliyun-coupon/balance', 'GET', false)
+// 模拟 connection 服务缺失：此时必须 fail-closed 而不是放行
+const hadConnection = services.connection
+delete services.connection
+const noAuth = await callRoute('/api/aliyun-coupon/balance')
 ok(noAuth.status === 503, '缺少 connection 服务时 fail-closed（503）', String(noAuth.status))
+services.connection = hadConnection
 
 console.log('\n=== 未知路径 ===')
-fake.get = (n) => ({
-  webServer: { register: (r) => { routes.push(r); return () => {} } },
-  connection: { admit: () => ({ peer: { id: 'test' } }) },
-  credentials: { resolve: async () => null },
-})[n] ?? null
 const nf = await callRoute('/api/aliyun-coupon/nope')
 ok(nf.status === 404, '未知路径返回 404', String(nf.status))
 

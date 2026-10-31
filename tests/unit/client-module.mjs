@@ -2,7 +2,7 @@
 import fs from 'node:fs'
 import vm from 'node:vm'
 
-const p = new URL('./lib/client.js', import.meta.url)
+const p = new URL('../../lib/client.js', import.meta.url)
 const code = fs.readFileSync(p, 'utf8')
 
 let pass = 0, fail = 0

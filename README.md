@@ -60,7 +60,7 @@
 2. 克隆仓库并构建：
    git clone https://github.com/tacotuesday22/dsh-aliyun-coupon-api.git
    cd dsh-aliyun-coupon-api
-   npm install     # 会自动执行 build.mjs 生成 lib/
+   npm install     # prepare 会自动生成 lib/
    npm pack        # 生成 tgz
 
 3. 用桌面版 dsh 安装 tgz：
@@ -180,7 +180,7 @@
 ```bash
 export ALIBABA_CLOUD_ACCESS_KEY_ID=LTAI...
 export ALIBABA_CLOUD_ACCESS_KEY_SECRET=...
-node test-live.mjs
+npm run test:live
 ```
 
 输出里能看到券余额和账户余额就说明配置正确。
@@ -244,7 +244,7 @@ find / -name "dsh" -path "*runtime/cli/bin*" 2>/dev/null
 ```bash
 git clone https://github.com/tacotuesday22/dsh-aliyun-coupon-api.git
 cd dsh-aliyun-coupon-api
-npm install          # prepare 脚本会自动执行 build.mjs，生成 lib/
+npm install          # prepare 脚本会自动生成 lib/
 npm pack             # 生成 dsh-aliyun-coupon-api-<版本>.tgz
 ```
 
@@ -271,7 +271,7 @@ npm pack             # 生成 dsh-aliyun-coupon-api-<版本>.tgz
 > `lib/`（构建产物）不在仓库里，必须先构建。手动构建也行：
 >
 > ```bash
-> node build.mjs
+> npm run build
 > npm pack
 > ```
 
@@ -571,7 +571,7 @@ npm pack       # 打包成含 lib/ 的 tgz
 <dsh> plugin --profile desktop add ./dsh-aliyun-coupon-api-<版本>.tgz
 ```
 
-> 如果你确实想直接从目录安装，请先执行 `npm run build`（等价于 `node build.mjs`），
+> 如果你确实想直接从目录安装，请先执行 `npm run build`，
 > 否则装上去的是一个指向空 `lib/` 的链接，插件不会生效。
 
 ---
@@ -590,65 +590,75 @@ npm pack       # 打包成含 lib/ 的 tgz
 
 ## 开发
 
-仓库里只有源码（`src/`），`lib/` 是构建产物，**不提交到 git**。
+仓库里只有源码，`lib/` 是构建产物，**不提交到 git**。
 
 ```bash
-# 构建
-npm run build          # 等价于 node build.mjs，生成 lib/ 并校验客户端模块格式
-
-# 打包分发
-npm pack               # 生成 dsh-aliyun-coupon-api-x.y.z.tgz
-
-# 安装到本地 profile
-dsh plugin --profile desktop add ./dsh-aliyun-coupon-api-x.y.z.tgz
+npm run build          # src/ → lib/，并校验客户端模块格式
+npm pack               # 打包成 dsh-aliyun-coupon-api-<版本>.tgz
+npm test               # 单测 + 集成测试（无需网络与凭据）
+npm run verify         # 校验已安装到 profile 里的副本
 ```
 
 > **为什么 `lib/` 不入库**：它是 `src/` 的机械转换结果，提交会让 diff 变得难读。
-> `prepare` 脚本保证 `npm install` / git 安装时自动构建。
->
-> 但注意：**直接 `dsh plugin add <仓库目录>` 而不先构建会失败**，
-> 因为 `main` 指向 `./lib/index.js`。请先 `npm run build`。
+> `prepare` / `prepublishOnly` 脚本保证 `npm install`、`npm pack`、`npm publish` 时自动构建。
 
 ### 目录结构
 
 ```
-src/
-├─ index.js     宿主端插件（路由、凭据、缓存）
-├─ aliyun.js    阿里云 API 签名与响应归一化
-├─ usage.js     今日消耗（读 dsh-cost-meter 账本）
-└─ client.js    浏览器端挂件（__ModuleLoader__ 格式）
-lib/            构建产物（git 忽略）
-*.mjs           测试脚本
-build.mjs       src/ → lib/ 的构建脚本
+src/                     源码
+├─ index.js              宿主端插件：路由、凭据读取、缓存、配置接口
+├─ aliyun.js             阿里云 OpenAPI 签名（ACS3-HMAC-SHA256）与响应归一化
+├─ usage.js              今日消耗：读 dsh-cost-meter 的本地账本
+└─ client.js             浏览器端：侧边栏卡片 + 设置页配置区块
+
+scripts/                 工具脚本
+├─ build.mjs             src/ → lib/ 构建，并校验客户端模块格式
+└─ verify-installed.mjs  加载 profile 中已安装的副本，模拟 DSH 客户端加载器
+
+tests/
+├─ unit/                 单元测试（纯逻辑，无需网络与凭据）
+│  ├─ signing.mjs        签名算法与错误处理
+│  ├─ normalize.mjs      真实响应的归一化回归
+│  ├─ usage.mjs          今日消耗读取与边界情况
+│  ├─ inject.mjs         Cordis 注入时序（含依赖未就绪场景）
+│  ├─ client-module.mjs  客户端模块格式与插槽注册
+│  ├─ settings-open.mjs  「去设置」自动打开与失败诊断
+│  └─ readme.mjs         README 事实校验（命令、路径、锚点、版本号）
+├─ integration/          集成测试（需先 build）
+│  ├─ host-routes.mjs    路由注册、鉴权 fail-closed、diag 不泄露密钥
+│  ├─ config-api.mjs     凭据配置接口全流程
+│  └─ cache-freshness.mjs 缓存命中时今日消耗仍需实时
+└─ manual/               手动测试（需本机已配置真实 AccessKey）
+   ├─ live-api.mjs       真实调用阿里云两个接口
+   ├─ e2e.mjs            完整 host 端链路
+   ├─ creds-fallback.mjs 凭据三级回落
+   └─ inspect-fields.mjs 打印真实响应字段，排查归一化
+
+cordis.patch.yml         插件注册（bundle patch）
+package.json             含 dsh.bundle / dsh.client 声明
+lib/                     构建产物（git 忽略）
 ```
 
 ### 测试
 
-不需要网络的：
-
 ```bash
-npm test               # 运行 logic + usage + inject + client + real
+npm test                 # 全部单元 + 集成测试，无需网络与凭据
+npm run test:unit        # 仅单元测试
+npm run test:integration # 仅集成测试（需先 npm run build）
+npm run verify           # 校验已安装副本
 ```
 
-需要本机已配置 AccessKey 的：
+需要真实凭据的手动测试（**会产生阿里云 API 调用**）：
 
 ```bash
-node test-live.mjs     # 真实调用阿里云两个接口
-node test-e2e.mjs      # 完整 host 端链路
+npm run test:live                  # 真实调用 DescribeCoupon / QueryAccountBalance
+node tests/manual/e2e.mjs          # 完整链路
+node tests/manual/creds-fallback.mjs  # 凭据读取回落
+node tests/manual/inspect-fields.mjs  # 打印真实字段
 ```
 
-逐个说明：
-
-```bash
-node test-logic.mjs    # 签名与响应归一化（无需网络）
-node test-usage.mjs    # 今日消耗读取
-node test-host.mjs     # 主机端路由与鉴权
-node test-inject.mjs   # Cordis 注入时序（包括"依赖尚未就绪"的场景）
-node test-client.mjs   # 客户端模块格式与插槽注册
-node test-creds.mjs    # 凭据三级回落（需本机已配置 AccessKey）
-node test-real.mjs     # 真实响应的回归用例（无需网络）
-node test-e2e.mjs      # 端到端（需本机已配置 AccessKey，会真实调用阿里云）
-```
+> 这些手动测试会读取 `~/.dsh/.credentials.yaml` 中的凭据，
+> 输出**不含**密钥本身，只报长度与调用结果。
 
 需要凭据的测试默认读取 `$DSH_HOME/.credentials.yaml`（`DSH_HOME` 缺省为 `~/.dsh`），
 也可用环境变量 `DSH_CREDENTIALS_FILE` 指定路径。
@@ -670,7 +680,7 @@ node test-e2e.mjs      # 端到端（需本机已配置 AccessKey，会真实调
 
 2. **客户端模块格式**：DSH 0.2.1-rc.5 起客户端插件必须是
    `window.__ModuleLoader__.load({ id, factory })`，写成裸 `module.exports`
-   会报 `module is not defined` 并导致整个 web boot 失败。`build.mjs` 已加格式校验。
+   会报 `module is not defined` 并导致整个 web boot 失败。`scripts/build.mjs` 已加格式校验。
 
 3. **`DescribeCoupon` 的 `Status` 参数区分大小写**：接口实际返回 `AVAILABLE`（全大写），
    而文档示例写的是 `Available`。传错大小写时**静默返回空数组**，不报错。

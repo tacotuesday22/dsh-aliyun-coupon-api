@@ -10,7 +10,7 @@ process.env.DSH_HOME = HOME
 const CRED_FILE = join(HOME, '.credentials.yaml')
 writeFileSync(CRED_FILE, 'version: 1\nrefs:\n  OTHER_KEY: something\n')
 
-const mod = await import(new URL('./lib/index.js', import.meta.url).href)
+const mod = await import(new URL('../../lib/index.js', import.meta.url).href)
 
 let pass = 0, fail = 0
 const ok = (c, l, e = '') => { if (c) { pass++; console.log('  ✓ ' + l) } else { fail++; console.log('  ✗ ' + l + (e ? ' → ' + e : '')) } }

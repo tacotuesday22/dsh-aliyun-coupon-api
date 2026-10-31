@@ -2,7 +2,7 @@
 import { EventEmitter } from 'node:events'
 import { fileURLToPath } from 'node:url'
 
-const LIB = new URL('./lib/index.js', import.meta.url)
+const LIB = new URL('../../lib/index.js', import.meta.url)
 const mod = await import(LIB.href)
 
 let pass = 0, fail = 0

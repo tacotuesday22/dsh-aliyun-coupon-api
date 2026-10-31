@@ -1,6 +1,6 @@
 // 用真实响应做回归测试：验证归一化对实际数据的处理，以及客户端格式化。
 import fs from 'node:fs'
-import { normalizeCoupons, normalizeBalance } from './src/aliyun.js'
+import { normalizeCoupons, normalizeBalance } from '../../src/aliyun.js'
 
 let pass = 0, fail = 0
 const ok = (c, l, e = '') => { if (c) { pass++; console.log('  ✓ ' + l) } else { fail++; console.log('  ✗ ' + l + (e ? ' → ' + e : '')) } }

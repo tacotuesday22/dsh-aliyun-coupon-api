@@ -3,7 +3,7 @@
 import fs from 'node:fs'
 import vm from 'node:vm'
 
-const code = fs.readFileSync(new URL('./lib/client.js', import.meta.url), 'utf8')
+const code = fs.readFileSync(new URL('../../lib/client.js', import.meta.url), 'utf8')
 
 let pass = 0, fail = 0
 const ok = (c, l, e = '') => { if (c) { pass++; console.log('  ✓ ' + l) } else { fail++; console.log('  ✗ ' + l + (e ? ' → ' + e : '')) } }

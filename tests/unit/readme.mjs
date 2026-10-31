@@ -2,7 +2,8 @@
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
-const ROOT = new URL('./', import.meta.url)
+// 本文件位于 tests/unit/，项目根是往上两级
+const ROOT = new URL('../../', import.meta.url)
 const readme = fs.readFileSync(fileURLToPath(new URL('README.md', ROOT)), 'utf8')
 const pkg = JSON.parse(fs.readFileSync(fileURLToPath(new URL('package.json', ROOT)), 'utf8'))
 
@@ -61,6 +62,29 @@ ok(/仓库里为什么没有 `lib\/`/.test(readme), '说明 lib 为何不入库'
 ok(/npm run build/.test(readme), '给出无 lib 时的构建方法')
 ok(/main` 指向 `\.\/lib\/index\.js/.test(readme) || /指向 `\.\/lib\/index\.js`/.test(readme),
   '指出 main 指向 lib，缺失会导致加载失败')
+
+console.log('\n=== 8. 仓库根目录整洁度 ===')
+// 根目录只应保留元数据文件；源码在 src/，脚本在 scripts/，测试在 tests/
+const rootFiles = fs.readdirSync(fileURLToPath(ROOT)).filter(f => fs.statSync(fileURLToPath(new URL(f, ROOT))).isFile())
+const allowedRoot = ['.gitignore', 'LICENSE', 'README.md', 'package.json', 'cordis.patch.yml']
+const strays = rootFiles.filter(f => !allowedRoot.includes(f) && !f.endsWith('.tgz'))
+ok(strays.length === 0, '根目录没有散落的脚本或测试文件', strays.join(', '))
+
+console.log('\n=== 9. 目录结构与 README 一致 ===')
+// 目录树里子目录以缩进形式书写，所以只要求出现末级目录名
+for (const [dir, label] of [['src', '源码'], ['scripts', '脚本'], ['tests/unit', '单元测试'],
+                             ['tests/integration', '集成测试'], ['tests/manual', '手动测试']]) {
+  ok(fs.existsSync(fileURLToPath(new URL(dir, ROOT))), `${dir}/ 存在（${label}）`)
+  const leaf = dir.split('/').pop() + '/'
+  ok(readme.includes(leaf), `README 目录树里画出 ${leaf}`)
+}
+// package.json 的 test 脚本里引用的文件必须真实存在
+const testScripts = Object.entries(pkg.scripts || {}).filter(([k]) => k.startsWith('test') || k === 'verify')
+for (const [name, cmd] of testScripts) {
+  const refs = [...cmd.matchAll(/tests\/[\w/-]+\.mjs|scripts\/[\w/-]+\.mjs/g)].map(m => m[0])
+  const missing = refs.filter(r => !fs.existsSync(fileURLToPath(new URL(r, ROOT))))
+  ok(missing.length === 0, `${name} 引用的脚本都存在`, missing.join(', '))
+}
 
 console.log(`\n结果: ${pass} 通过, ${fail} 失败`)
 process.exit(fail ? 1 : 0)

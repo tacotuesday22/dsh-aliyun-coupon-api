@@ -1,7 +1,7 @@
 // 验证 host 端凭据读取的三级回落，用真实凭据文件。
 import { EventEmitter } from 'node:events'
 
-const mod = await import('./lib/index.js')
+const mod = await import('../../lib/index.js')
 
 let pass = 0, fail = 0
 const ok = (c, l, e = '') => { if (c) { pass++; console.log('  ✓ ' + l) } else { fail++; console.log('  ✗ ' + l + (e ? ' → ' + e : '')) } }
