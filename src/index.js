@@ -21,7 +21,7 @@ export const name = 'aliyun-coupon-api'
 
 const API_PREFIX = '/api/aliyun-coupon'
 /** 插件版本，与 package.json 保持一致（用于 diag 自检）。 */
-const PLUGIN_VERSION = '1.6.1'
+const PLUGIN_VERSION = '1.6.2'
 // 缓存与前端轮询同为 5 分钟：正常轮询不会穿透缓存重复打阿里云接口。
 const CACHE_MS = 5 * 60_000
 // 手动刷新（点卡片）的最短间隔，防止连点。

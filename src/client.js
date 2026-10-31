@@ -27,6 +27,9 @@ window.__ModuleLoader__.load({
 
     const ROUTE = '/api/aliyun-coupon'
 
+    /** 插件版本，与 package.json 保持一致（用于诊断上报）。 */
+    const PLUGIN_VERSION = '1.6.2'
+
     /** 金额格式化：阿里云/账本可能给出多位小数，统一两位。 */
     const money = (n) => {
       if (typeof n !== 'number' || !Number.isFinite(n)) return '—'
@@ -121,6 +124,11 @@ window.__ModuleLoader__.load({
 }
 .acp-link:hover{border-bottom-color:currentColor;}
 .acp-link-sep{opacity:.4;}
+.acp-fail{
+  display:flex;align-items:center;gap:6px;flex-wrap:wrap;
+  font-size:11px;line-height:1.4;
+  color:var(--dsw-alias-label-tertiary,var(--dsw-alias-text-secondary,#888));
+}
 
 /* ── 设置页：凭据配置区块 ── */
 .acp-setup-panel{
@@ -227,16 +235,200 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 跳转到 DSH 设置页里的凭据配置区块。
+     * 打开 DSH 设置面板并定位到本插件的配置区块。
      *
-     * 只做 hash 跳转，不去猜设置按钮的 DOM 结构（各版本不同，容易失效）。
-     * 用户点开设置后，配置区块会读到这个 hash 并自动滚动到可视区域。
+     * 难点：DSH 没有公开"打开设置"的编程接口，设置按钮的 CSS 类名还是哈希化的
+     * （形如「<6位随机串>_<用途>」），随版本变化。所以这里采用三层策略：
+     *
+     *   1. 多选择器依次尝试（记录每个命中情况）
+     *   2. 点击后用观察者确认面板是否真的打开；600ms 内没打开就判定失败
+     *   3. 失败时静默降级（仍设置 hash），并把诊断信息交给卡片显示，
+     *      用户可一键生成带诊断的 Issue
+     *
+     * 所有尝试结果都会记在 lastAttempt 里，供诊断上报使用。
      */
     const SETTINGS_HASH = '#aliyun-coupon-setup'
-    function openSettings() {
+
+    // 选择器按可靠性排序：aria-label 与 data-* 比哈希化的 class 稳定得多
+    const SETTINGS_SELECTORS = [
+      '[data-slot="sidebar.settings"] button',
+      '[data-slot="settings.trigger"]',
+      'button[aria-label*="设置"]',
+      '[role="button"][aria-label*="设置"]',
+      'button[aria-label*="Settings"]',
+      '[role="button"][aria-label*="Settings"]',
+      '[data-testid*="settings"]',
+      // 最后兜底：任何文本含"设置"的底部按钮
+      'button[title*="设置"]',
+      'button[title*="Settings"]',
+    ]
+
+    /** 最近一次打开尝试的结果，供诊断使用。 */
+    let lastAttempt = null
+
+    /** 判断设置面板是否已打开：找 role=dialog 或含"设置"标题的容器。 */
+    function isSettingsOpen() {
       try {
-        window.location.hash = SETTINGS_HASH
-      } catch { /* 静默失败，用户仍可手动进设置 */ }
+        const dialogs = document.querySelectorAll('[role="dialog"], dialog[open], [aria-modal="true"]')
+        for (const d of dialogs) {
+          const text = (d.getAttribute('aria-label') || '') + ' ' + (d.id || '')
+          if (/设置|settings/i.test(text)) return true
+          // 标题节点
+          const h = d.querySelector('h1, h2, h3, [role="heading"]')
+          if (h && /设置|settings/i.test(h.textContent || '')) return true
+        }
+        // 有些版本是侧边抽屉而非 dialog
+        const drawers = document.querySelectorAll('[data-settings-open="true"], [data-panel="settings"]')
+        return drawers.length > 0
+      } catch { return false }
+    }
+
+    /**
+     * 采集一个元素的诊断属性（用于 Issue 上报）。
+     * 只取属性与近邻可见文字，不采集其他区域内容。
+     */
+    function describeElement(el) {
+      if (!el) return null
+      const attrs = {}
+      for (const a of ['tagName', 'id', 'role', 'aria-label', 'aria-expanded', 'data-slot', 'data-testid', 'title', 'type']) {
+        const v = a === 'tagName' ? el.tagName : el.getAttribute(a)
+        if (v) attrs[a] = String(v).slice(0, 80)
+      }
+      // class 只保留形状信息（去掉随机哈希，看出用途即可）
+      const cls = el.getAttribute('class')
+      if (cls) {
+        attrs.classShape = cls.split(/\s+/)
+          .filter(Boolean)
+          .slice(0, 6)
+          .map(c => c.replace(/^[A-Za-z0-9]{5,7}_/, '_').replace(/[a-f0-9]{6,}/gi, 'HASH'))
+          .join(' ')
+          .slice(0, 120)
+      }
+      // 按钮自身的可见文字（限制长度）
+      const text = (el.textContent || '').trim().replace(/\s+/g, ' ')
+      if (text) attrs.text = text.slice(0, 40)
+      return attrs
+    }
+
+    /** 采集侧边栏底部区域的候选按钮属性（用户选了"属性 + 按钮附近文字"）。 */
+    function collectSidebarFootDiagnostics() {
+      try {
+        const out = []
+        // 找所有按钮，筛选底部区域（y 坐标靠下的）
+        const vh = window.innerHeight || 800
+        const buttons = Array.from(document.querySelectorAll('button, [role="button"]'))
+        for (const b of buttons) {
+          const r = b.getBoundingClientRect()
+          if (r.top < vh * 0.6 || r.width === 0) continue
+          const d = describeElement(b)
+          if (d) out.push(d)
+          if (out.length >= 8) break
+        }
+        return out
+      } catch { return [] }
+    }
+
+    /** 生成失败诊断对象。 */
+    function buildDiagnostics(results) {
+      return {
+        pluginVersion: PLUGIN_VERSION,
+        userAgent: (typeof navigator !== 'undefined' ? navigator.userAgent : '').slice(0, 160),
+        attempts: results,
+        candidates: collectSidebarFootDiagnostics(),
+        hasDialog: (() => { try { return document.querySelectorAll('[role="dialog"]').length } catch { return -1 } })(),
+        time: new Date().toISOString(),
+      }
+    }
+
+    /** GitHub Issue 预填链接（诊断信息作为正文）。 */
+    function buildIssueUrl(diag) {
+      const body = [
+        '## 问题描述',
+        '点击侧边栏卡片上的「去设置」后，设置面板没有自动打开。',
+        '',
+        '## 环境',
+        '- 插件版本: ' + diag.pluginVersion,
+        '- 时间: ' + diag.time,
+        '- User-Agent: ' + diag.userAgent,
+        '',
+        '## 自动诊断',
+        '尝试的选择器及结果：',
+        ...diag.attempts.map(a => '- `' + a.selector + '` → ' + (a.found ? '找到并点击' : '未找到') + (a.error ? '（' + a.error + '）' : '')),
+        '',
+        '设置面板检测: ' + (diag.hasDialog >= 0 ? '页面中 dialog 数量 ' + diag.hasDialog : '检测异常'),
+        '',
+        '## 侧边栏底部按钮候选（用于定位正确选择器）',
+        '```json',
+        JSON.stringify(diag.candidates, null, 2),
+        '```',
+        '',
+        '## 补充说明',
+        '（如：当时侧边栏是展开 / 折叠状态；是否有其他插件同时安装了类似卡片）',
+      ].join('\n')
+
+      const base = 'https://github.com/tacotuesday22/dsh-aliyun-coupon-api/issues/new'
+      const params = new URLSearchParams({
+        title: '[Bug] 点击「去设置」无法自动打开设置面板',
+        labels: 'bug',
+        body,
+      })
+      return base + '?' + params.toString()
+    }
+
+    /**
+     * 尝试打开设置面板。
+     * @returns {Promise<{ok:boolean, diagnostics?:object}>}
+     */
+    async function openSettings() {
+      const results = []
+      // 无论成败都先设置 hash，作为降级方案（用户手动打开设置后仍能定位）
+      try { window.location.hash = SETTINGS_HASH } catch { /* ignore */ }
+
+      if (typeof document === 'undefined') {
+        return { ok: false, diagnostics: null }
+      }
+
+      for (const sel of SETTINGS_SELECTORS) {
+        let el = null
+        try { el = document.querySelector(sel) } catch { el = null }
+        if (!el) { results.push({ selector: sel, found: false }); continue }
+
+        try {
+          el.click()
+          results.push({ selector: sel, found: true })
+        } catch (e) {
+          results.push({ selector: sel, found: true, error: String(e?.message || e).slice(0, 60) })
+          continue
+        }
+
+        // 等待面板出现（最多 600ms）
+        const opened = await new Promise((resolve) => {
+          let done = false
+          const finish = (v) => { if (!done) { done = true; resolve(v) } }
+          try {
+            const mo = new MutationObserver(() => { if (isSettingsOpen()) { mo.disconnect(); finish(true) } })
+            mo.observe(document.body, { childList: true, subtree: true, attributes: true })
+            setTimeout(() => { try { mo.disconnect() } catch { /* ignore */ } finish(isSettingsOpen()) }, 600)
+          } catch { setTimeout(() => finish(isSettingsOpen()), 600) }
+        })
+
+        if (opened) {
+          lastAttempt = { ok: true, selector: sel, diagnostics: null }
+          // 等区块渲染后滚动到可视区域
+          setTimeout(() => {
+            try {
+              const anchor = document.getElementById('aliyun-coupon-setup-anchor')
+              if (anchor && anchor.scrollIntoView) anchor.scrollIntoView({ block: 'center', behavior: 'smooth' })
+            } catch { /* ignore */ }
+          }, 400)
+          return lastAttempt
+        }
+        // 这个选择器点开了但面板没出现，继续试下一个
+      }
+
+      const diag = buildDiagnostics(results)
+      lastAttempt = { ok: false, diagnostics: diag }
+      return lastAttempt
     }
 
     // ── 阿里云控制台直达链接 ──
@@ -475,6 +667,8 @@ window.__ModuleLoader__.load({
 
     function Card() {
       const [state, setState] = React.useState({ phase: 'loading', data: null })
+      // 打开设置的结果：busy=进行中, failed=失败（显示降级提示）
+      const [openState, setOpenState] = React.useState({ busy: false, failed: false, diagnostics: null })
 
       const load = React.useCallback(async (force) => {
         try {
@@ -510,6 +704,19 @@ window.__ModuleLoader__.load({
       if (!d) return null
 
       if (d.configured === false) {
+        const goSettings = async (e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          setOpenState({ busy: true, failed: false })
+          try {
+            const r = await openSettings()
+            // 失败：静默降级 —— 不弹窗打断，只在卡片下方给一行提示 + Issue 入口
+            setOpenState({ busy: false, failed: !r.ok, diagnostics: r.diagnostics || null })
+          } catch {
+            setOpenState({ busy: false, failed: true, diagnostics: null })
+          }
+        }
+
         return h('div', {
           className: 'acp-card acp-setup',
           title: '配置阿里云 AccessKey 后即可显示余额与代金券',
@@ -522,9 +729,9 @@ window.__ModuleLoader__.load({
             h('a', {
               className: 'acp-link',
               href: '#',
-              title: '跳转到 DSH 设置页的配置区块',
-              onClick: (e) => { e.preventDefault(); e.stopPropagation(); openSettings() },
-            }, '去设置 ›'),
+              title: '自动打开 DSH 设置页的配置区块',
+              onClick: goSettings,
+            }, openState.busy ? '打开中…' : '去设置 ›'),
             h('span', { className: 'acp-link-sep' }, '·'),
             h('a', {
               className: 'acp-link',
@@ -533,7 +740,21 @@ window.__ModuleLoader__.load({
               rel: 'noopener noreferrer',
               title: '查看图文配置教程',
               onClick: (e) => e.stopPropagation(),
-            }, '配置教程 ↗')))
+            }, '配置教程 ↗')),
+
+          // 自动打开失败时：静默降级提示，附一键上报入口
+          openState.failed
+            ? h('div', { className: 'acp-fail' },
+                h('span', null, '自动打开失败，请手动点击左下角「设置」'),
+                h('a', {
+                  className: 'acp-link',
+                  href: buildIssueUrl(openState.diagnostics || buildDiagnostics([])),
+                  target: '_blank',
+                  rel: 'noopener noreferrer',
+                  title: '已自动附带诊断信息，便于定位问题',
+                  onClick: (e) => e.stopPropagation(),
+                }, '报告问题 ↗'))
+            : null)
       }
 
       if (!d.ok) {
