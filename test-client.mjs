@@ -68,11 +68,11 @@ ok(typeof exported.apply === 'function', 'exports.apply 是函数')
 ok(Array.isArray(exported.inject) && exported.inject.includes('slots'), 'exports.inject 含 slots', JSON.stringify(exported.inject))
 
 console.log('\n=== 插槽注册 ===')
-let registered = null
+const registered = []
 const ctx = {
   effect: (fn) => { const d = fn(); if (typeof d === 'function') d() },
   slots: {
-    register: (opts, Comp) => { registered = { opts, Comp }; return () => {} },
+    register: (opts, Comp) => { registered.push({ opts, Comp }); return () => {} },
     inject: (name, fn) => { fn() },
   },
 }
@@ -82,16 +82,30 @@ try {
 } catch (e) {
   ok(false, 'apply 抛异常', e.message)
 }
-ok(registered?.opts?.name === 'sidebar.footer.action', '注册到 sidebar.footer.action', registered?.opts?.name)
-ok(registered?.opts?.id === 'aliyun-coupon-api', '插槽 id 正确', registered?.opts?.id)
-ok(typeof registered?.Comp === 'function', '注册的是组件函数')
+
+ok(registered.length === 2, '注册了 2 个插槽', String(registered.length))
+
+const card = registered.find(r => r.opts.name === 'sidebar.footer.action')
+const section = registered.find(r => r.opts.name === 'settings.section')
+
+ok(!!card, '注册到 sidebar.footer.action（侧边栏卡片）')
+ok(card?.opts?.id === 'aliyun-coupon-api', '卡片插槽 id 正确', card?.opts?.id)
+ok(typeof card?.Comp === 'function', '卡片是组件函数')
+
+ok(!!section, '注册到 settings.section（设置页配置区块）')
+ok(section?.opts?.id === 'aliyun-coupon', '设置区块 id 正确', section?.opts?.id)
+ok(typeof section?.opts?.label === 'string' && section.opts.label.length > 0,
+  '设置区块有显示名称', section?.opts?.label)
+ok(typeof section?.Comp === 'function', '设置区块是组件函数')
 
 // 渲染一次，确认组件不崩
-try {
-  const el = registered.Comp({})
-  ok(el !== undefined && el !== null, '组件首次渲染返回元素')
-} catch (e) {
-  ok(false, '组件渲染抛异常', e.message)
+for (const [name, r] of [['卡片', card], ['设置区块', section]]) {
+  try {
+    const el = r.Comp({})
+    ok(el !== undefined && el !== null, name + '首次渲染返回元素')
+  } catch (e) {
+    ok(false, name + '渲染抛异常', e.message)
+  }
 }
 
 console.log(`\n结果: ${pass} 通过, ${fail} 失败`)

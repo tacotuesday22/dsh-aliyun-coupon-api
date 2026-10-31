@@ -1,6 +1,6 @@
 {
   "name": "dsh-aliyun-coupon-api",
-  "version": "1.5.1",
+  "version": "1.6.0",
   "description": "阿里云余额与代金券挂件（DeepSeek Harness 插件）：通过阿里云官方 OpenAPI 只读查询账户余额（QueryAccountBalance）与「云工开物」学生券剩余额度（DescribeCoupon），在侧边栏底部显示。无需账号密码，只需 RAM 只读 AccessKey。",
   "keywords": [
     "dsh",

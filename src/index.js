@@ -21,7 +21,7 @@ export const name = 'aliyun-coupon-api'
 
 const API_PREFIX = '/api/aliyun-coupon'
 /** 插件版本，与 package.json 保持一致（用于 diag 自检）。 */
-const PLUGIN_VERSION = '1.5.1'
+const PLUGIN_VERSION = '1.6.0'
 // 缓存与前端轮询同为 5 分钟：正常轮询不会穿透缓存重复打阿里云接口。
 const CACHE_MS = 5 * 60_000
 // 手动刷新（点卡片）的最短间隔，防止连点。
@@ -84,6 +84,54 @@ function readRefFromFile(key) {
   return ''
 }
 
+/**
+ * 判断凭据实际来自哪个来源，供 UI 提示用户该去哪里清除。
+ * @returns {'store'|'file'|'env'|'none'}
+ */
+async function credentialSource(ctx, key) {
+  try {
+    const credentials = ctx.get?.('credentials')
+    if (credentials && typeof credentials.resolve === 'function') {
+      for (const arg of [key, { name: key }, { key }]) {
+        try {
+          const hit = await credentials.resolve(arg)
+          const v = typeof hit === 'string' ? hit : hit?.value
+          if (typeof v === 'string' && v.trim()) return 'store'
+        } catch { /* 下一个形态 */ }
+      }
+    }
+  } catch { /* 忽略 */ }
+  if (readRefFromFile(key)) return 'file'
+  return String(process.env[key] ?? '').trim() ? 'env' : 'none'
+}
+
+/**
+ * 从 $DSH_HOME/.credentials.yaml 的 refs 段移除指定键（只删相关行，其余原样保留）。
+ * @returns {boolean} 是否实际修改了文件
+ */
+function removeRefFromFile(keys) {
+  try {
+    const home = process.env.DSH_HOME || join(homedir(), '.dsh')
+    const file = join(home, '.credentials.yaml')
+    const text = fs.readFileSync(file, 'utf8')
+    const lines = text.split(/\r?\n/)
+    const out = []
+    let inRefs = false
+    let changed = false
+    for (const line of lines) {
+      if (/^refs:\s*$/.test(line)) { inRefs = true; out.push(line); continue }
+      if (inRefs && /^\S/.test(line)) inRefs = false
+      if (inRefs) {
+        const m = line.match(/^\s+([A-Za-z_][A-Za-z0-9_]*)\s*:/)
+        if (m && keys.includes(m[1])) { changed = true; continue } // 丢弃这一行
+      }
+      out.push(line)
+    }
+    if (changed) fs.writeFileSync(file, out.join('\n'), 'utf8')
+    return changed
+  } catch { return false }
+}
+
 async function readAllCredentials(ctx) {
   const [accessKeyId, accessKeySecret, securityToken] = await Promise.all([
     readCredential(ctx, CREDENTIAL_VARS.accessKeyId),
@@ -101,6 +149,26 @@ function sendJson(res, status, payload) {
     'content-length': Buffer.byteLength(body),
   })
   res.end(body)
+}
+
+/** 读取请求体，带大小上限（配置接口只需要很小的 JSON）。 */
+const MAX_BODY_BYTES = 8192
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = []
+    let size = 0
+    req.on('data', (chunk) => {
+      size += chunk.length
+      if (size > MAX_BODY_BYTES) {
+        reject(new Error('请求体过大'))
+        try { req.destroy() } catch { /* ignore */ }
+        return
+      }
+      chunks.push(chunk)
+    })
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
+    req.on('error', reject)
+  })
 }
 
 export function apply(ctx) {
@@ -252,6 +320,150 @@ export function apply(ctx) {
     }
 
     try {
+      // ── 配置读取：只返回状态，绝不返回密钥 ──
+      if (pathname === API_PREFIX + '/config' && req.method !== 'POST' && req.method !== 'DELETE') {
+        const creds = await readAllCredentials(ctx)
+        let writable = false
+        try {
+          const credentials = ctx.get?.('credentials')
+          if (credentials && typeof credentials.describe === 'function') {
+            const info = await credentials.describe(CREDENTIAL_VARS.accessKeyId)
+            writable = Boolean(info && info.writable !== false)
+          }
+        } catch { /* 只读环境 */ }
+
+        // 凭据来自哪里：store（可由界面清除）/ file（需手改文件）/ env（需改环境变量）
+        const source = await credentialSource(ctx, CREDENTIAL_VARS.accessKeyId)
+
+        sendJson(res, 200, {
+          ok: true,
+          configured: Boolean(creds.accessKeyId && creds.accessKeySecret),
+          // 只暴露 AK 的末四位，便于用户辨认，无法还原
+          akTail: creds.accessKeyId ? creds.accessKeyId.slice(-4) : '',
+          source,
+          writable,
+        })
+        return
+      }
+
+      // ── 配置保存：写入凭据并立即验证 ──
+      if (pathname === API_PREFIX + '/config' && req.method === 'POST') {
+        let body
+        try {
+          body = JSON.parse(await readBody(req))
+        } catch {
+          sendJson(res, 400, { ok: false, error: '请求格式错误' })
+          return
+        }
+
+        const ak = String(body?.accessKeyId || '').trim()
+        const sk = String(body?.accessKeySecret || '').trim()
+
+        if (!ak || !sk) {
+          sendJson(res, 400, { ok: false, error: 'AccessKey ID 和 Secret 都不能为空' })
+          return
+        }
+        // 格式校验：拦住最常见的错误——填成模型 API Key
+        if (!/^LTAI[0-9A-Za-z]{8,}$/.test(ak)) {
+          sendJson(res, 400, {
+            ok: false,
+            error: 'AccessKey ID 应以 LTAI 开头。' +
+              (/^sk-/.test(ak) ? '你填的看起来是模型 API Key，不是阿里云 RAM AccessKey。' : ''),
+          })
+          return
+        }
+        if (sk.length < 16) {
+          sendJson(res, 400, { ok: false, error: 'AccessKey Secret 长度不正确，请检查是否复制完整' })
+          return
+        }
+
+        // 先验证再保存：避免把错误的 Key 写进凭据库
+        try {
+          await queryCoupons({ accessKeyId: ak, accessKeySecret: sk })
+        } catch (err) {
+          sendJson(res, 400, { ok: false, error: err?.message || String(err), stage: 'verify' })
+          return
+        }
+
+        // 验证通过才写入
+        const credentials = ctx.get?.('credentials')
+        if (!credentials || typeof credentials.set !== 'function') {
+          sendJson(res, 501, {
+            ok: false,
+            error: '当前 DSH 未提供可写入的凭据服务，请手动编辑 ~/.dsh/.credentials.yaml',
+            stage: 'store',
+          })
+          return
+        }
+        try {
+          await credentials.set(CREDENTIAL_VARS.accessKeyId, ak)
+          await credentials.set(CREDENTIAL_VARS.accessKeySecret, sk)
+        } catch (err) {
+          sendJson(res, 500, {
+            ok: false,
+            error: '保存失败：' + (err?.message || String(err)),
+            stage: 'store',
+          })
+          return
+        }
+
+        // 清掉旧缓存，让下次读取立刻用新凭据
+        cached = null
+        cachedAt = 0
+
+        sendJson(res, 200, { ok: true, message: '配置成功', akTail: ak.slice(-4) })
+        return
+      }
+
+      // ── 测试连接：用当前已保存的凭据实际调用一次 ──
+      if (pathname === API_PREFIX + '/test') {
+        const creds = await readAllCredentials(ctx)
+        if (!creds.accessKeyId || !creds.accessKeySecret) {
+          sendJson(res, 200, { ok: false, error: '尚未配置 AccessKey' })
+          return
+        }
+        try {
+          const r = await queryCoupons(creds)
+          sendJson(res, 200, {
+            ok: true,
+            count: r.total.count,
+            remain: r.total.remain,
+            currency: r.total.currency,
+          })
+        } catch (err) {
+          sendJson(res, 200, { ok: false, error: err?.message || String(err) })
+        }
+        return
+      }
+
+      // ── 清除凭据 ──
+      // 同时清理 credentials 服务与凭据文件，否则文件里的旧值会继续生效，
+      // 用户会以为"清除了但还显示已配置"。
+      if (pathname === API_PREFIX + '/config' && req.method === 'DELETE') {
+        const notes = []
+        const credentials = ctx.get?.('credentials')
+        if (credentials && typeof credentials.unset === 'function') {
+          try {
+            await credentials.unset(CREDENTIAL_VARS.accessKeySecret)
+            await credentials.unset(CREDENTIAL_VARS.accessKeyId)
+          } catch (err) {
+            notes.push('凭据服务清除失败：' + (err?.message || String(err)))
+          }
+        }
+        // 文件兜底也要清，否则读凭据时会重新读到
+        const fileCleared = removeRefFromFile([CREDENTIAL_VARS.accessKeyId, CREDENTIAL_VARS.accessKeySecret])
+        if (fileCleared) notes.push('已从 .credentials.yaml 移除')
+
+        if (String(process.env[CREDENTIAL_VARS.accessKeyId] || '').trim()) {
+          notes.push('注意：环境变量中仍存在同名变量，需自行删除后重启')
+        }
+
+        cached = null
+        cachedAt = 0
+        sendJson(res, 200, { ok: true, message: '已清除', notes })
+        return
+      }
+
       if (pathname === API_PREFIX + '/diag') {
         const creds = await readAllCredentials(ctx)
         // 运行时诊断：服务可用性、凭据来源、一次探测性调用的结果

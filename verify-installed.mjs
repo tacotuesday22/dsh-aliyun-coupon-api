@@ -54,13 +54,17 @@ const mod = loaded.factory((n) => { if (n === 'react') return ReactStub; throw n
 ok(typeof mod.apply === 'function', 'factory 返回 apply')
 ok(Array.isArray(mod.inject), 'factory 返回 inject', JSON.stringify(mod.inject))
 
-let reg = null
+const regs = []
 mod.apply({
   effect: (f) => { const d = f(); if (typeof d === 'function') d() },
-  slots: { register: (o, C) => { reg = { o, C }; return () => {} }, inject: (n, f) => f() },
+  slots: { register: (o, C) => { regs.push({ o, C }); return () => {} }, inject: (n, f) => f() },
 })
-ok(reg?.o?.name === 'sidebar.footer.action', '注册到 sidebar.footer.action')
-ok(typeof reg?.C === 'function', '组件可注册')
+const cardReg = regs.find(r => r.o.name === 'sidebar.footer.action')
+const sectionReg = regs.find(r => r.o.name === 'settings.section')
+ok(!!cardReg, '注册到 sidebar.footer.action（侧边栏卡片）')
+ok(typeof cardReg?.C === 'function', '卡片组件可注册')
+ok(!!sectionReg, '注册到 settings.section（设置页配置区块）')
+ok(typeof sectionReg?.C === 'function', '设置区块组件可注册')
 
 // ---- 3. 其他插件是否还在 ----
 console.log('\n=== 其他插件包 ===')
