@@ -138,6 +138,56 @@ node test-live.mjs
 
 ## 第二步：安装插件
 
+### ⚠️ 先搞清楚你的 `dsh` 是哪一个
+
+`dsh plugin --profile desktop` 这个命令，**只有桌面版自带的 CLI 才能操作 desktop profile**。
+
+| 你的 `dsh` 来自 | 能否装进桌面版 |
+|---|---|
+| **DeepSeek Harness 桌面版自带** | ✅ 可以 |
+| `npm i -g @deepseek-ai/dsh` 全局安装 | ❌ 会被拒绝 |
+
+> 官方说明：desktop profile 归 Electron 应用独占，npm 版 CLI 的插件管理请求会被拒绝，
+> 需用桌面版安装目录里的 `dsh` 命令操作。这是有意设计，避免不同运行时互相污染。
+
+**桌面版的 `dsh` 通常不在 PATH 里**，需要写完整路径。先确认你的路径：
+
+<details>
+<summary>Windows 查找方法</summary>
+
+默认位置：
+
+```
+%LOCALAPPDATA%\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd
+```
+
+可以直接用：
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" --version
+```
+
+如果能打印版本号，就用这个完整路径执行下面所有命令。
+</details>
+
+<details>
+<summary>macOS / Linux 查找方法</summary>
+
+```bash
+# macOS
+ls "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/"
+
+# 或者直接在全盘找
+find / -name "dsh" -path "*runtime/cli/bin*" 2>/dev/null
+```
+
+找到后同样用完整路径执行。
+</details>
+
+下面为可读起见简写为 `dsh`，**请替换成你实际可用的那个命令**。
+
+---
+
 ### 方式 A：从 GitHub 源码构建后安装（推荐）
 
 ```bash
@@ -145,7 +195,20 @@ git clone https://github.com/tacotuesday22/dsh-aliyun-coupon-api.git
 cd dsh-aliyun-coupon-api
 npm install          # prepare 脚本会自动执行 build.mjs，生成 lib/
 npm pack             # 生成 dsh-aliyun-coupon-api-<版本>.tgz
-dsh plugin --profile desktop add ./dsh-aliyun-coupon-api-<版本>.tgz
+```
+
+然后安装（把 `<dsh>` 换成你的完整路径）：
+
+```powershell
+# Windows 示例
+& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" `
+  plugin --profile desktop add .\dsh-aliyun-coupon-api-<版本>.tgz
+```
+
+```bash
+# macOS / Linux 示例
+"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" \
+  plugin --profile desktop add ./dsh-aliyun-coupon-api-<版本>.tgz
 ```
 
 > **为什么要 `npm pack` 而不是直接 `add .`**
@@ -163,17 +226,39 @@ dsh plugin --profile desktop add ./dsh-aliyun-coupon-api-<版本>.tgz
 
 ### 方式 B：直接安装 tgz
 
-如果别人已经给你一个 `.tgz`：
+如果别人已经给你一个 `.tgz`，省掉 clone 与构建：
+
+```powershell
+# Windows
+& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" `
+  plugin --profile desktop add .\dsh-aliyun-coupon-api-<版本>.tgz
+```
 
 ```bash
-dsh plugin --profile desktop add ./dsh-aliyun-coupon-api-<版本>.tgz
+# macOS / Linux
+"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" \
+  plugin --profile desktop add ./dsh-aliyun-coupon-api-<版本>.tgz
 ```
 
 ### 方式 C：npm 安装（发布后可用）
 
-```bash
-dsh plugin --profile desktop add dsh-aliyun-coupon-api
+同样必须用桌面版自带的 CLI：
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" `
+  plugin --profile desktop add dsh-aliyun-coupon-api
 ```
+
+### 确认安装成功
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" `
+  plugin --profile desktop list
+```
+
+输出里应能看到 `dsh-aliyun-coupon-api@<版本>`。
+
+**卸载**：把 `add` 换成 `remove`。
 
 ### 安装后必须重启
 
